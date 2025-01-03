@@ -36,12 +36,18 @@ static int verbose = 0;
 static int progress = 0;
 static int timeout = 2; // 2 seconds
 
+#define SHOW_PROGRESS_ON  1
+#define SHOW_PROGRESS_OFF 0
+static int show_progress = SHOW_PROGRESS_OFF;
+#define PROGRESS_STR_LEN 13 // should be enough for +-2^31 + '%' + '\0'
+static char progress_str[PROGRESS_STR_LEN] = {0};
+
 static int run = 0;
 static pthread_mutex_t run_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void *draw_thread(void *) {
   do {
-    osd = xosd_create(2);
+    osd = xosd_create(2 + show_progress);
 
     xosd_set_font(osd, font);
     xosd_set_colour(osd, color);
@@ -51,6 +57,10 @@ void *draw_thread(void *) {
 
     xosd_display(osd, 0, XOSD_string, text);
     xosd_display(osd, 1, XOSD_percentage, progress);
+    if (show_progress) {
+      snprintf(progress_str, PROGRESS_STR_LEN, "%d%%", progress);
+      xosd_display(osd, 2, XOSD_string, progress_str);
+    }
 
     xosd_set_timeout(osd, timeout);
     xosd_wait_until_no_display(osd);
@@ -72,12 +82,12 @@ void *draw_thread(void *) {
 }
 
 void print_help() {
-  puts(PROG_NAME " [-h|-v] [-p <progress>] [-f <font>] [-t <text>] [-c <color>] [-T <timeout>]");
+  puts(PROG_NAME " [-h|-v] [-p <progress>] [-f <font>] [-t <text>] [-c <color>] [-T <timeout>] [-P]");
 }
 
 int main(int argc, char **argv) {
   int opt;
-  const char optstr[] = "hvt:p:f:c:T:";
+  const char optstr[] = "hvt:p:f:c:T:P";
   while ((opt = getopt(argc, argv, optstr)) != -1) {
     switch (opt) {
       case 'h':
@@ -88,7 +98,7 @@ int main(int argc, char **argv) {
         verbose = 1;
         break;
       case 'p':
-        progress = atoi(optarg); // It could be 0 but the fun fact is we don't care.
+        progress = atoi(optarg);
         break;
       case 't':
         text = strdup(optarg);
@@ -104,6 +114,12 @@ int main(int argc, char **argv) {
         break;
       case 'T':
         timeout = atoi(optarg);
+        break;
+      case 'P':
+        show_progress = 1;
+        break;
+      default:
+        ERR("Unknown option: %c", opt);
         break;
     }
   }
