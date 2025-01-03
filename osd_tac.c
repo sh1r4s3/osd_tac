@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2025 Nikita (sh1r4s3) Ermakov <sh1r4s3@mail.si-head.nl>
+ * SPDX-License-Identifier: MIT
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <xosd.h>
