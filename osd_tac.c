@@ -86,7 +86,17 @@ void *draw_thread(void *) {
 }
 
 void print_help() {
-  puts(PROG_NAME " [-h|-v] [-p <progress>] [-f <font>] [-t <text>] [-c <color>] [-T <timeout>] [-P]");
+  const char help_str[] = \
+PROG_NAME " [options]\n"\
+"Options:\n"\
+"-h             help\n"\
+"-p <progress>  progress to show (0..100)\n"\
+"-f <font>      select font\n"\
+"-t <text>      text above the progress bar\n"\
+"-c <color>     color of the text and progress bar\n"\
+"-T <timeout>   timeout for OSD in seconds\n"\
+"-P             show percentage progress under the progress bar\n";
+  puts(help_str);
 }
 
 int main(int argc, char **argv) {
