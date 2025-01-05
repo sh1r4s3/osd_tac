@@ -21,7 +21,7 @@
 #define DEFAULT_TEXT "PROGRESS"
 #define DEFAULT_FONT "-*-terminal-bold-*-*-*-18-140-*-*-*-*-*-*"
 #define DEFAULT_COLOR "LawnGreen"
-#define SOCKET_FILE "/tmp/" PROG_NAME ".socket"
+#define DEFAULT_SOCKET_FILE "/tmp/" PROG_NAME ".socket"
 
 // Logging macros.
 #define ERR(format, ...) \
@@ -34,6 +34,7 @@ static int sockfd = 0;
 static char *text = NULL;
 static char *font = NULL;
 static char *color = NULL;
+static char *socket_file = NULL;
 static xosd *osd;
 static pthread_t draw_hdlr;
 static int verbose = 0;
@@ -86,22 +87,23 @@ void *draw_thread(void *) {
 }
 
 void print_help() {
-  const char help_str[] = \
-PROG_NAME " [options]\n"\
-"Options:\n"\
-"-h             help\n"\
-"-p <progress>  progress to show (0..100)\n"\
-"-f <font>      select font\n"\
-"-t <text>      text above the progress bar\n"\
-"-c <color>     color of the text and progress bar\n"\
-"-T <timeout>   timeout for OSD in seconds\n"\
-"-P             show percentage progress under the progress bar\n";
+  const char help_str[] =                                               \
+PROG_NAME " [options]\n"                                                \
+"Options:\n"                                                            \
+"-h                  help\n"                                            \
+"-p <progress>       progress to show (0..100)\n"                       \
+"-f <font>           select font\n"                                     \
+"-t <text>           text above the progress bar\n"                     \
+"-c <color>          color of the text and progress bar\n"              \
+"-T <timeout>        timeout for OSD in seconds\n"                      \
+"-P                  show percentage progress under the progress bar\n" \
+"-s <socket file>    path to the socket file\n";
   puts(help_str);
 }
 
 int main(int argc, char **argv) {
   int opt;
-  const char optstr[] = "hvt:p:f:c:T:P";
+  const char optstr[] = "hvt:p:f:c:T:Ps:";
   while ((opt = getopt(argc, argv, optstr)) != -1) {
     switch (opt) {
       case 'h':
@@ -132,6 +134,10 @@ int main(int argc, char **argv) {
       case 'P':
         show_progress = 1;
         break;
+      case 's':
+        socket_file = strdup(optarg);
+        if (!socket_file) ERR("Can't duplicate string (%d)", errno);
+        break;
       default:
         ERR("Unknown option: %c", opt);
         break;
@@ -146,22 +152,29 @@ int main(int argc, char **argv) {
     font = strdup(DEFAULT_FONT);
     if (!font) ERR("Can't duplicate string (%d)", errno);
   }
-
   if (!color) {
     color = strdup(DEFAULT_COLOR);
     if (!color) ERR("Can't duplicate string (%d)", errno);
+  }
+  if (!socket_file) {
+    socket_file = strdup(DEFAULT_SOCKET_FILE);
+    if (!socket_file) ERR("Can't duplicate string (%d)", errno);
   }
 
   int ret = pthread_create(&draw_hdlr, NULL, draw_thread, NULL);
 
   struct stat st;
-  int exists = stat(SOCKET_FILE, &st);
+  int exists = stat(socket_file, &st);
 
   sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
   struct sockaddr_un addr = {
     AF_UNIX,
-    SOCKET_FILE
+    0
   };
+  if (sizeof(addr.sun_path) < strlen(socket_file)) {
+    ERR("socket pathname is too long");
+  }
+  strncpy(addr.sun_path, socket_file, sizeof(addr.sun_path) - 1);
 
   if (exists == 0) {
     connect(sockfd, (const struct sockaddr *)&addr, sizeof(addr));
@@ -189,10 +202,11 @@ int main(int argc, char **argv) {
 
   close(sockfd);
   pthread_join(draw_hdlr, NULL);
-  unlink(SOCKET_FILE);
+  unlink(socket_file);
   free(text);
   free(font);
   free(color);
+  free(socket_file);
 
   return EXIT_SUCCESS;
 }
