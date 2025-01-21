@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <poll.h>
 #include <errno.h>
+#include <signal.h>
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -30,16 +31,24 @@
       exit(EXIT_FAILURE); \
     } while (0)
 
+enum EPROGRESS: int {
+  HIDE_PROGRESS = 0,
+  SHOW_PROGRESS
+};
+
+enum EMODE: int {
+  SERVER,
+  CLIENT
+};
+
 static int sockfd = 0;
 static char *socket_file = NULL;
 static xosd *osd;
 static pthread_t draw_hdlr;
 static int verbose = 0;
-
-enum EPROGRESS: int {
-  HIDE_PROGRESS = 0,
-  SHOW_PROGRESS
-};
+static enum EMODE mode = SERVER;
+static struct sigaction custom_sigaction = {0};
+static const int sig2handle[] = {SIGTERM, SIGSEGV, SIGINT, SIGABRT};
 
 static struct __attribute__((packed)) TDATA {
   int progress;
@@ -110,6 +119,19 @@ PROG_NAME " [options]\n"                                                \
 "-P                  show percentage progress under the progress bar\n" \
 "-s <socket file>    path to the socket file\n";
   puts(help_str);
+}
+
+void free_resources() {
+  unlink(socket_file);
+  free(data);
+  free(socket_file);
+}
+
+void sig_handler(int sig) {
+  puts("sig handler");
+  signal(sig, SIG_DFL);
+  raise(sig);
+  free_resources();
 }
 
 int main(int argc, char **argv) {
@@ -184,7 +206,7 @@ int main(int argc, char **argv) {
   int ret = pthread_create(&draw_hdlr, NULL, draw_thread, NULL);
 
   struct stat st;
-  int exists = stat(socket_file, &st);
+  mode = stat(socket_file, &st) ? SERVER : CLIENT;
 
   sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
   struct sockaddr_un addr = {
@@ -196,13 +218,22 @@ int main(int argc, char **argv) {
   }
   strncpy(addr.sun_path, socket_file, sizeof(addr.sun_path) - 1);
 
-  if (exists == 0) {
+  if (mode == CLIENT) {
     connect(sockfd, (const struct sockaddr *)&addr, sizeof(addr));
     write(sockfd, data, sizeof(struct TDATA) + data->text_sz + data->font_sz + data->color_sz);
     return EXIT_SUCCESS;
   }
 
   bind(sockfd, (const struct sockaddr *)&addr, sizeof(addr));
+
+  // handle signals to cleanup the resources
+  custom_sigaction.sa_handler = sig_handler;
+  for (int isig = 0; isig < sizeof(sig2handle)/sizeof(int); ++isig) {
+    if (sigaction(sig2handle[isig], &custom_sigaction, NULL) < 0) {
+      ERR("Can't set signal handler for %d", sig2handle[isig]);
+    }
+  }
+
   while (1) {
     int ret = listen(sockfd, 16);
     int conn = accept(sockfd, NULL, NULL);
@@ -227,9 +258,7 @@ int main(int argc, char **argv) {
 
   close(sockfd);
   pthread_join(draw_hdlr, NULL);
-  unlink(socket_file);
-  free(data);
-  free(socket_file);
+  free_resources();
 
   return EXIT_SUCCESS;
 }
