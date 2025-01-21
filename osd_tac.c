@@ -27,7 +27,7 @@
 // Logging macros.
 #define ERR(format, ...) \
     do { \
-      fprintf(stderr, __FILE__ ":%d  ERROR: " format "\n", __LINE__, ##__VA_ARGS__); \
+      fprintf(stderr, __FILE__ ":%d  ERROR: " format ", errno=%d\n", __LINE__, ##__VA_ARGS__, errno); \
       exit(EXIT_FAILURE); \
     } while (0)
 
@@ -170,7 +170,7 @@ int main(int argc, char **argv) {
         break;
       case 's':
         socket_file = strdup(optarg);
-        if (!socket_file) ERR("Can't duplicate string (%d)", errno);
+        if (!socket_file) ERR("Can't duplicate string");
         break;
       default:
         ERR("Unknown option: %c", opt);
@@ -200,7 +200,7 @@ int main(int argc, char **argv) {
 
   if (!socket_file) {
     socket_file = strdup(DEFAULT_SOCKET_FILE);
-    if (!socket_file) ERR("Can't duplicate string (%d)", errno);
+    if (!socket_file) ERR("Can't duplicate string");
   }
 
   int ret = pthread_create(&draw_hdlr, NULL, draw_thread, NULL);
