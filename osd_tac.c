@@ -31,19 +31,30 @@
     } while (0)
 
 static int sockfd = 0;
-static char *text = NULL;
-static char *font = NULL;
-static char *color = NULL;
 static char *socket_file = NULL;
 static xosd *osd;
 static pthread_t draw_hdlr;
 static int verbose = 0;
-static int progress = 0;
-static int timeout = 2; // 2 seconds
 
-#define SHOW_PROGRESS_ON  1
-#define SHOW_PROGRESS_OFF 0
-static int show_progress = SHOW_PROGRESS_OFF;
+enum EPROGRESS: int {
+  HIDE_PROGRESS = 0,
+  SHOW_PROGRESS
+};
+
+static struct __attribute__((packed)) TDATA {
+  int progress;
+  int timeout; // seconds
+  enum EPROGRESS show_progress;
+  int text_sz;
+  int font_sz;
+  int color_sz;
+  char opts[0]; // text, font, color strings
+} *data;
+
+#define GET_TEXT(x) x->opts
+#define GET_FONT(x) x->opts + x->text_sz
+#define GET_COLOR(x) x->opts + x->text_sz + x->font_sz
+
 #define PROGRESS_STR_LEN 13 // should be enough for +-2^31 + '%' + '\0'
 static char progress_str[PROGRESS_STR_LEN] = {0};
 
@@ -52,22 +63,22 @@ static pthread_mutex_t run_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void *draw_thread(void *) {
   do {
-    osd = xosd_create(2 + show_progress);
+    osd = xosd_create(2 + data->show_progress /* an extra line for progress percentage */);
 
-    xosd_set_font(osd, font);
-    xosd_set_colour(osd, color);
+    xosd_set_font(osd, GET_FONT(data));
+    xosd_set_colour(osd, GET_COLOR(data));
     xosd_set_shadow_offset(osd, 5);
     xosd_set_align(osd, XOSD_center);
     xosd_set_pos(osd, XOSD_middle);
 
-    xosd_display(osd, 0, XOSD_string, text);
-    xosd_display(osd, 1, XOSD_percentage, progress);
-    if (show_progress) {
-      snprintf(progress_str, PROGRESS_STR_LEN, "%d%%", progress);
+    xosd_display(osd, 0, XOSD_string, GET_TEXT(data));
+    xosd_display(osd, 1, XOSD_percentage, data->progress);
+    if (data->show_progress) {
+      snprintf(progress_str, PROGRESS_STR_LEN, "%d%%", data->progress);
       xosd_display(osd, 2, XOSD_string, progress_str);
     }
 
-    xosd_set_timeout(osd, timeout);
+    xosd_set_timeout(osd, data->timeout);
     xosd_wait_until_no_display(osd);
     xosd_destroy(osd);
 
@@ -103,6 +114,10 @@ PROG_NAME " [options]\n"                                                \
 
 int main(int argc, char **argv) {
   int opt;
+  char *text = NULL, *font = NULL, *color = NULL;
+  int progress = 0;
+  int timeout = 2; // seconds
+  enum EPROGRESS show_progress = HIDE_PROGRESS;
   const char optstr[] = "hvt:p:f:c:T:Ps:";
   while ((opt = getopt(argc, argv, optstr)) != -1) {
     switch (opt) {
@@ -117,22 +132,19 @@ int main(int argc, char **argv) {
         progress = atoi(optarg);
         break;
       case 't':
-        text = strdup(optarg);
-        if (!text) ERR("Can't duplicate string (%d)", errno);
+        text = optarg;
         break;
       case 'f':
-        font = strdup(optarg);
-        if (!font) ERR("Can't duplicate string (%d)", errno);
+        font = optarg;
         break;
       case 'c':
-        color = strdup(optarg);
-        if (!color) ERR("Can't duplicate string (%d)", errno);
+        color = optarg;
         break;
       case 'T':
         timeout = atoi(optarg);
         break;
       case 'P':
-        show_progress = 1;
+        show_progress = SHOW_PROGRESS;
         break;
       case 's':
         socket_file = strdup(optarg);
@@ -144,18 +156,26 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (!text) {
-    text = strdup(DEFAULT_TEXT);
-    if (!text) ERR("Can't duplicate string (%d)", errno);
-  }
-  if (!font) {
-    font = strdup(DEFAULT_FONT);
-    if (!font) ERR("Can't duplicate string (%d)", errno);
-  }
-  if (!color) {
-    color = strdup(DEFAULT_COLOR);
-    if (!color) ERR("Can't duplicate string (%d)", errno);
-  }
+  if (!text) text = DEFAULT_TEXT;
+  if (!font) font = DEFAULT_FONT;
+  if (!color) color = DEFAULT_COLOR;
+
+  int text_sz = strlen(text) + 1;
+  int font_sz = strlen(font) + 1;
+  int color_sz = strlen(color) + 1;
+  data = malloc(sizeof(struct TDATA) + text_sz + font_sz + color_sz);
+  if (!data) ERR("Can't allocate memory for data struct");
+
+  data->progress = progress;
+  data->show_progress = show_progress;
+  data->timeout = timeout;
+  data->text_sz = text_sz;
+  data->font_sz = font_sz;
+  data->color_sz = color_sz;
+  strcpy(GET_TEXT(data), text);
+  strcpy(GET_FONT(data), font);
+  strcpy(GET_COLOR(data), color);
+
   if (!socket_file) {
     socket_file = strdup(DEFAULT_SOCKET_FILE);
     if (!socket_file) ERR("Can't duplicate string (%d)", errno);
@@ -178,7 +198,7 @@ int main(int argc, char **argv) {
 
   if (exists == 0) {
     connect(sockfd, (const struct sockaddr *)&addr, sizeof(addr));
-    write(sockfd, &progress, sizeof(progress));
+    write(sockfd, data, sizeof(struct TDATA) + data->text_sz + data->font_sz + data->color_sz);
     return EXIT_SUCCESS;
   }
 
@@ -189,8 +209,13 @@ int main(int argc, char **argv) {
     if (conn < 0) {
       if (!run) break;
     }
-    int nb = read(conn, &progress, sizeof(progress));
-    if (nb != sizeof(progress)) {
+    free(data);
+    struct TDATA header = {0};
+    int nb = read(conn, &header, sizeof(struct TDATA));
+    data = malloc(sizeof(struct TDATA) + header.text_sz + header.font_sz + header.color_sz);
+    memcpy(data, &header, sizeof(struct TDATA));
+    nb += read(conn, data->opts, header.text_sz + header.font_sz + header.color_sz);
+    if (nb != sizeof(struct TDATA) + data->text_sz + data->font_sz + data->color_sz) {
       ERR("wtf");
     }
     pthread_mutex_lock(&run_mutex);
@@ -203,9 +228,7 @@ int main(int argc, char **argv) {
   close(sockfd);
   pthread_join(draw_hdlr, NULL);
   unlink(socket_file);
-  free(text);
-  free(font);
-  free(color);
+  free(data);
   free(socket_file);
 
   return EXIT_SUCCESS;
