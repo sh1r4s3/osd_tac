@@ -57,7 +57,7 @@ static struct __attribute__((packed)) TDATA {
   int text_sz;
   int font_sz;
   int color_sz;
-  char opts[0]; // text, font, color strings
+  char opts[]; // text, font, color strings
 } *data;
 
 #define GET_TEXT(x) x->opts
