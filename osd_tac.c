@@ -48,7 +48,7 @@ static pthread_t draw_hdlr;
 static int verbose = 0;
 static enum EMODE mode = SERVER;
 static struct sigaction custom_sigaction = {0};
-static const int sig2handle[] = {SIGTERM, SIGSEGV, SIGINT, SIGABRT};
+static const int sig2handle[] = {SIGTERM, SIGSEGV, SIGINT, SIGABRT, SIGUSR1, SIGUSR2, SIGHUP, SIGPIPE};
 
 static struct __attribute__((packed)) TDATA {
   int progress;
