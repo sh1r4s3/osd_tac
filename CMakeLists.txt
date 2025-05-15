@@ -13,6 +13,11 @@ find_library(XOSD_LIBRARY_PATH xosd REQUIRED)
 message(XOSD_LIBRARY_PATH="${XOSD_LIBRARY_PATH}")
 message(XOSD_INCLUDE_PATH="${XOSD_INCLUDE_PATH}")
 
+install(
+    TARGETS ${OSD_TAC_EXE}
+    COMPONENT Runtime
+)
+
 target_link_libraries(
     ${OSD_TAC_EXE}
     xosd
